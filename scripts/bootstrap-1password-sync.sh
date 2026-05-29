@@ -34,7 +34,7 @@
 #   export OP_INSTANCE_URL=https://your-op-connect.example.com
 #   export OP_SERVICE_TOKEN=<connect-server-api-token>
 #   export PROJECT_SLUG=my-app
-#   export ENVIRONMENTS="dev prod"
+#   export ENVIRONMENTS="dev staging prod"
 #   bash scripts/bootstrap-1password-sync.sh
 #
 # Usage (monorepo):
@@ -51,16 +51,23 @@ set -euo pipefail
 ###############################################################################
 : "${INFISICAL_API_URL:?Set INFISICAL_API_URL, e.g. https://secrets.example.com}"
 : "${INFISICAL_PROJECT_ID:?Set INFISICAL_PROJECT_ID to the project uuid}"
-: "${OP_INSTANCE_URL:?Set OP_INSTANCE_URL to your 1Password Connect Server URL}"
-: "${OP_SERVICE_TOKEN:?Set OP_SERVICE_TOKEN to the Connect server API token}"
 
 PROJECT_SLUG="${PROJECT_SLUG:-my-project}"
 VAULT_NAME="${VAULT_NAME:-${PROJECT_SLUG}}"
 CONNECTION_NAME="${CONNECTION_NAME:-${PROJECT_SLUG}-1p}"
-ENVIRONMENTS="${ENVIRONMENTS:-dev prod}"
+ENVIRONMENTS="${ENVIRONMENTS:-dev staging prod}"
 MONOREPO_APPS="${MONOREPO_APPS:-}"
-# Optional: provide to skip app connection creation entirely.
+# Optional: provide to reuse an existing App Connection (skip its creation).
 OP_CONNECTION_ID="${OP_CONNECTION_ID:-}"
+
+# Connect-server creds are only needed when CREATING a new App Connection.
+# When reusing one (OP_CONNECTION_ID set), they are not required.
+if [[ -z "$OP_CONNECTION_ID" ]]; then
+  : "${OP_INSTANCE_URL:?Set OP_INSTANCE_URL to your 1Password Connect Server URL (or set OP_CONNECTION_ID to reuse an existing connection)}"
+  : "${OP_SERVICE_TOKEN:?Set OP_SERVICE_TOKEN to the Connect server API token (or set OP_CONNECTION_ID to reuse an existing connection)}"
+fi
+OP_INSTANCE_URL="${OP_INSTANCE_URL:-}"
+OP_SERVICE_TOKEN="${OP_SERVICE_TOKEN:-}"
 
 ###############################################################################
 # Prerequisites

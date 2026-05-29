@@ -35,8 +35,9 @@ set -euo pipefail
 : "${INFISICAL_API_URL:?Set INFISICAL_API_URL, e.g. https://secrets.example.com}"
 PROJECT_NAME="${PROJECT_NAME:-My Project}"
 PROJECT_SLUG="${PROJECT_SLUG:-my-project}"
-# Space-separated list of environments to provision (default: dev prod).
-ENVIRONMENTS="${ENVIRONMENTS:-dev prod}"
+# Space-separated list of environments to provision.
+# Default matches Infisical's shouldCreateDefaultEnvs:true => dev staging prod.
+ENVIRONMENTS="${ENVIRONMENTS:-dev staging prod}"
 # Optional: space-separated app names for monorepo folder layout.
 # When set, creates a /<app> folder in each environment for every app listed.
 # Leave unset or empty for single-app (all secrets at /).
@@ -44,6 +45,9 @@ MONOREPO_APPS="${MONOREPO_APPS:-}"
 INFISICAL_PROJECT_ID="${INFISICAL_PROJECT_ID:-}"
 ORG_ID="${ORG_ID:-}"   # auto-detected from workspace list if blank
 OUT_DIR="${OUT_DIR:-secrets}"  # gitignored; receives per-env machine identity files
+# Re-run policy for machine identities: 0 (default) reuses an existing identity
+# of the same name; 1 deletes and recreates it (rotates clientId + secret).
+OVERWRITE_IDENTITIES="${OVERWRITE_IDENTITIES:-0}"
 mkdir -p "$OUT_DIR"
 chmod 700 "$OUT_DIR"
 
@@ -216,12 +220,15 @@ fi
 ###############################################################################
 # Step 4 — Create per-environment machine identities (Universal Auth).
 #
-# !!! WARNING: NOT IDEMPOTENT !!!
-# POST /api/v1/identities always creates a NEW identity — re-running this
-# script without setting INFISICAL_PROJECT_ID to skip step 1 will produce
-# DUPLICATE identities. To re-run safely:
-#   1. Delete the old identities in the UI first, OR
-#   2. Set INFISICAL_PROJECT_ID and comment out this section.
+# IDEMPOTENT (since 2026-05-29): each identity is looked up by name first.
+# If it already exists it is REUSED and creation is skipped — re-runs no
+# longer produce duplicates. Set OVERWRITE_IDENTITIES=1 to delete and
+# recreate an existing identity (rotates its clientId + client secret and
+# rewrites the credential file).
+#
+# Lookup/delete endpoints NEED LIVE RE-VERIFICATION against your instance:
+#   GET    /api/v2/organizations/:orgId/identity-memberships
+#   DELETE /api/v1/identities/:identityId
 #
 # !!! ENV ISOLATION GAP !!!
 # role:"member" is PROJECT-WIDE — the identity can read ALL environments,
@@ -244,6 +251,35 @@ fi
 create_machine_identity() {
   local name="$1" env_slug="$2"
   echo "==> Creating machine identity '${name}' (env=${env_slug})..."
+
+  # Idempotency — reuse an existing identity of the same name. Org-level
+  # lookup also catches a half-provisioned identity from a prior failed run.
+  local existing_id=""
+  api GET "${INFISICAL_API_URL}/api/v2/organizations/${ORG_ID}/identity-memberships"
+  if [[ "$HTTP_CODE" =~ ^2 ]]; then
+    existing_id=$(printf '%s' "$HTTP_BODY" | \
+      jq -r --arg n "$name" '.identityMemberships[]? | select(.identity.name==$n) | .identity.id' 2>/dev/null | head -n1 || true)
+  else
+    echo "[WARN] identity lookup [$HTTP_CODE] — proceeding to create (may duplicate): $HTTP_BODY" >&2
+  fi
+
+  if [[ -n "$existing_id" ]]; then
+    if [[ "$OVERWRITE_IDENTITIES" == "1" ]]; then
+      echo "  identity '${name}' exists (id=${existing_id}) — OVERWRITE_IDENTITIES=1: deleting and recreating..."
+      api DELETE "${INFISICAL_API_URL}/api/v1/identities/${existing_id}"
+      [[ "$HTTP_CODE" =~ ^2 ]] || {
+        echo "[FATAL] identity delete [$HTTP_CODE]: $HTTP_BODY" >&2
+        echo "  UI fallback: Org Settings > Identities > delete '${name}'" >&2
+        return 1
+      }
+      echo "  deleted — recreating fresh"
+    else
+      echo "[skip] identity '${name}' already exists (id=${existing_id}) — reusing (set OVERWRITE_IDENTITIES=1 to rotate)"
+      local out_file="${OUT_DIR}/infisical-${env_slug}-machine.env"
+      [[ -f "$out_file" ]] || echo "  note: ${out_file} not present; set OVERWRITE_IDENTITIES=1 to mint a new secret and regenerate it" >&2
+      return 0
+    fi
+  fi
 
   # 4a) Create org-level identity.
   api POST "${INFISICAL_API_URL}/api/v1/identities" "$(jq -nc \

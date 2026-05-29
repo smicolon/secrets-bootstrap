@@ -35,6 +35,14 @@ migrate-dry env="prod":
 onepassword-sync:
     bash scripts/bootstrap-1password-sync.sh
 
+# Post-provisioning: write .infisical.json so `infisical run` needs no flags
+setup-run:
+    bash scripts/setup-infisical-run.sh
+
+# Run any command with secrets injected from Infisical, e.g. just run npm run dev
+run *cmd:
+    bash scripts/run-with-secrets.sh {{cmd}}
+
 # ── Inspection ────────────────────────────────────────────────────────────────
 
 # List secret names for an environment (default: dev)
@@ -48,6 +56,8 @@ lint:
     shellcheck scripts/bootstrap-infisical.sh
     shellcheck scripts/bootstrap-1password-sync.sh
     shellcheck scripts/migrate-env-to-infisical.sh
+    shellcheck scripts/setup-infisical-run.sh
+    shellcheck scripts/run-with-secrets.sh
     shellcheck install.sh
     @echo "shellcheck passed"
 
@@ -56,5 +66,7 @@ syntax-check:
     bash -n scripts/bootstrap-infisical.sh
     bash -n scripts/bootstrap-1password-sync.sh
     bash -n scripts/migrate-env-to-infisical.sh
+    bash -n scripts/setup-infisical-run.sh
+    bash -n scripts/run-with-secrets.sh
     bash -n install.sh
     @echo "syntax check passed"
