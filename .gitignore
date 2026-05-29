@@ -1,0 +1,17 @@
+# Secret output files produced by the bootstrap scripts.
+# These contain real machine-identity credentials — never commit them.
+secrets/
+*.machine.env
+
+# Local environment files (keep .env.example committed).
+.env
+.env.*
+!.env.example
+
+# Project config (contains real values filled in by the operator).
+config.sh
+
+# OS / editor
+.DS_Store
+.idea/
+*.swp
