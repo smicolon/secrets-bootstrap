@@ -1,4 +1,4 @@
-# infisical-bootstrap
+# secrets-bootstrap
 
 Reusable provisioning toolkit for wiring up [Infisical](https://infisical.com) secret management and an optional [1Password](https://1password.com) break-glass mirror for any project — single-app or monorepo.
 
@@ -10,7 +10,7 @@ All scripts are `set -euo pipefail`, pass `shellcheck`, and gate every mutation 
 
 ```bash
 # From your project root:
-curl -fsSL https://raw.githubusercontent.com/smicolon/infisical-bootstrap/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/smicolon/secrets-bootstrap/main/install.sh | bash
 ```
 
 This downloads the three scripts into `./scripts/` and drops `config.example.sh` and `.env.example` in the project root. It does not execute any provisioning.

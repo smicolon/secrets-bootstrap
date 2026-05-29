@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# install.sh — bootstrap installer for infisical-bootstrap.
+# install.sh — bootstrap installer for secrets-bootstrap.
 #
 # Fetches the toolkit into the current project directory so any project can
 # use it without cloning this repo manually.
 #
 # Usage (from your project root):
-#   curl -fsSL https://raw.githubusercontent.com/smicolon/infisical-bootstrap/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/smicolon/secrets-bootstrap/main/install.sh | bash
 #
 # What it does:
 #   1. Creates ./scripts/ if it does not exist.
@@ -19,7 +19,7 @@
 # It does NOT execute any provisioning — you run the scripts yourself.
 set -euo pipefail
 
-REPO_RAW="https://raw.githubusercontent.com/smicolon/infisical-bootstrap/main"
+REPO_RAW="https://raw.githubusercontent.com/smicolon/secrets-bootstrap/main"
 
 ###############################################################################
 # Helpers
@@ -45,7 +45,7 @@ download() {
 # Main
 ###############################################################################
 echo ""
-echo "=== infisical-bootstrap installer ==="
+echo "=== secrets-bootstrap installer ==="
 echo ""
 
 # Create scripts/ directory.
@@ -89,5 +89,5 @@ echo ""
 echo "  5. (Optional) Set up 1Password sync:"
 echo "     bash scripts/bootstrap-1password-sync.sh"
 echo ""
-echo "See README.md or https://github.com/smicolon/infisical-bootstrap for full docs."
+echo "See README.md or https://github.com/smicolon/secrets-bootstrap for full docs."
 echo ""

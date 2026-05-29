@@ -1,4 +1,4 @@
-# infisical-bootstrap task runner.  Install `just`:  brew install just
+# secrets-bootstrap task runner.  Install `just`:  brew install just
 #
 # Copy config.example.sh to config.sh and fill in values before running.
 # These recipes drive the three provisioning scripts in scripts/.
@@ -15,7 +15,7 @@ default:
 
 # Show the bootstrap installer command (curl | bash)
 install-url:
-    @echo "curl -fsSL https://raw.githubusercontent.com/smicolon/infisical-bootstrap/main/install.sh | bash"
+    @echo "curl -fsSL https://raw.githubusercontent.com/smicolon/secrets-bootstrap/main/install.sh | bash"
 
 # ── Provisioning (run from your laptop with an active infisical login) ────────
 
