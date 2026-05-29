@@ -17,7 +17,8 @@ export PROJECT_NAME="My Project"
 export PROJECT_SLUG="my-project"
 
 # Whitespace-separated list of environments to provision.
-export ENVIRONMENTS="dev prod"
+# Default matches Infisical's auto-created envs (shouldCreateDefaultEnvs:true).
+export ENVIRONMENTS="dev staging prod"
 
 # Monorepo: space-separated app names (leave empty for single-app).
 # export MONOREPO_APPS="api worker frontend"
@@ -25,6 +26,18 @@ export MONOREPO_APPS=""
 
 # Re-run: provide to skip project creation.
 # export INFISICAL_PROJECT_ID="<uuid>"
+
+# Machine-identity re-run policy: 0 (default) reuses an existing identity of the
+# same name; 1 deletes and recreates it (rotates clientId + client secret).
+export OVERWRITE_IDENTITIES="0"
+
+# ── Run / post-provisioning ──────────────────────────────────────────────────
+# Used by setup-infisical-run.sh (.infisical.json) and run-with-secrets.sh.
+
+# Default environment baked into .infisical.json.
+export DEFAULT_ENV="dev"
+# Environment that run-with-secrets.sh injects (override per run).
+export INFISICAL_ENV="dev"
 
 # ── 1Password ────────────────────────────────────────────────────────────────
 # Requires a 1Password Connect Server (not a bare service account token).

@@ -49,11 +49,12 @@ meant to read identically.
 - **Auth reuses the operator's CLI session**, not a token in config:
   `infisical user get token --plain --domain=...` yields a Bearer JWT.
 - **Idempotency is per-resource and intentional.** Project creation, folders,
-  app connections, and syncs all check-then-create (or accept a `*_ID` env var
-  to skip). The one exception is **machine-identity creation, which is NOT
-  idempotent** — `POST /api/v1/identities` always makes a new identity.
-  Re-running `bootstrap-infisical.sh` without `INFISICAL_PROJECT_ID` set
-  produces duplicates. This is documented loudly in the script; keep it that way.
+  app connections, syncs, and machine identities all check-then-create (or
+  accept a `*_ID` env var to skip). Machine identities are looked up by name via
+  `GET /api/v2/organizations/:orgId/identity-memberships` and reused; re-runs do
+  not duplicate them. `OVERWRITE_IDENTITIES=1` deletes and recreates (rotating
+  the secret). Note the lookup/delete endpoints are marked *re-verify* — they
+  weren't part of the original live-verified set.
 - **Secret hygiene is a hard rule.** No script ever prints a secret value.
   `DRY_RUN=1` in the migration prints only `KEY (len=N)`. Credential output
   files go to `secrets/` (mode 600, gitignored) and `config.sh` is gitignored.

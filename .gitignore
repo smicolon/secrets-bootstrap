@@ -15,3 +15,11 @@ config.sh
 .DS_Store
 .idea/
 *.swp
+
+# Agent scratch / working notes (never committed).
+agent-artifacts/
+
+# Dogfood artifact: this repo provisions itself, so its .infisical.json points
+# at a real internal workspace — keep it out of the public repo. Consumer
+# projects SHOULD commit their own .infisical.json (it contains no secrets).
+.infisical.json

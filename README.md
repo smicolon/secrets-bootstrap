@@ -35,6 +35,8 @@ bash scripts/bootstrap-infisical.sh
 | `scripts/bootstrap-infisical.sh` | Create project, environments, monorepo folders, machine identities |
 | `scripts/bootstrap-1password-sync.sh` | Wire Infisical → 1Password one-way sync |
 | `scripts/migrate-env-to-infisical.sh` | Push `.env` secrets into Infisical |
+| `scripts/setup-infisical-run.sh` | Post-provisioning: write `.infisical.json` so `infisical run` needs no flags |
+| `scripts/run-with-secrets.sh` | Universal entrypoint — run any command with secrets injected |
 | `install.sh` | curl-pipe installer (downloads scripts into any project) |
 | `config.example.sh` | Documented config template — source before running |
 | `.env.example` | env-var reference for all config knobs |
@@ -51,17 +53,17 @@ All secrets live at the root path `/` in each environment.
 ```bash
 export PROJECT_NAME="My App"
 export PROJECT_SLUG="my-app"
-export ENVIRONMENTS="dev prod"
+export ENVIRONMENTS="dev staging prod"
 # MONOREPO_APPS is unset
 
 bash scripts/bootstrap-infisical.sh
 ```
 
-Machine identities created: `my-app-dev`, `my-app-prod`.
+Machine identities created: `my-app-dev`, `my-app-staging`, `my-app-prod`.
 
-Credential files written to `secrets/infisical-dev-machine.env` and `secrets/infisical-prod-machine.env`.
+Credential files written to `secrets/infisical-dev-machine.env`, `secrets/infisical-staging-machine.env`, and `secrets/infisical-prod-machine.env`.
 
-1Password key schema (if sync enabled): `MY_APP_DEV_{{secretKey}}`, `MY_APP_PROD_{{secretKey}}`.
+1Password key schema (if sync enabled): `MY_APP_DEV_{{secretKey}}`, `MY_APP_STAGING_{{secretKey}}`, `MY_APP_PROD_{{secretKey}}`.
 
 ### Monorepo
 
@@ -70,13 +72,13 @@ A `/<app>` folder is created per app per environment. Each app's secrets are iso
 ```bash
 export PROJECT_NAME="My Monorepo"
 export PROJECT_SLUG="my-monorepo"
-export ENVIRONMENTS="dev prod"
+export ENVIRONMENTS="dev staging prod"
 export MONOREPO_APPS="api worker frontend"
 
 bash scripts/bootstrap-infisical.sh
 ```
 
-Folders created: `/api`, `/worker`, `/frontend` in each of `dev` and `prod`.
+Folders created: `/api`, `/worker`, `/frontend` in each of `dev`, `staging`, and `prod`.
 
 To migrate an app's `.env`:
 
@@ -108,6 +110,93 @@ bootstrap-1password-sync.sh
   -> creates one sync per (env, app) pair
 ```
 
+### `just bootstrap` step-by-step
+
+`just bootstrap` runs `scripts/bootstrap-infisical.sh`. With the default
+`ENVIRONMENTS="dev staging prod"`, a single-app run does this:
+
+```
+just bootstrap
+   │
+   ▼
+PREFLIGHT      load env config · require curl/jq/infisical
+               infisical user get token  →  Bearer JWT
+   │
+   ▼
+GET  /api/v1/workspace                    →  orgId
+   │
+   ▼
+POST /api/v2/workspace (default envs)     →  project.id      (skipped if INFISICAL_PROJECT_ID set)
+   │
+   ▼
+GET  /api/v1/workspace/:id                →  verify envs (⚠ warn if a target env missing)
+   │
+   ▼
+[monorepo only] POST /api/v2/folders      →  /app per env × app   (single-app skips: secrets at /)
+   │
+   ▼
+MACHINE IDENTITIES   idempotent — existing identity of same name is reused
+                     (set OVERWRITE_IDENTITIES=1 to delete + recreate)
+   for ENV in [ dev, staging, prod ]:
+     ① POST /identities                          → identity.id
+     ② POST …/identity-memberships/:id           (attach to project)
+     ③ POST …/universal-auth/identities/:id      → clientId
+     ④ POST …/client-secrets                     → clientSecret (returned once)
+        → writes secrets/infisical-<env>-machine.env   (mode 600, gitignored)
+   │
+   ▼
+Bootstrap complete
+   ⚠ identities = role:member (project-wide). Isolate via a custom
+     env-scoped Project Role in the UI.
+```
+
+Net result for the default config: 1 project, default envs verified, and
+**3 machine identities** (`<slug>-dev`, `<slug>-staging`, `<slug>-prod`),
+each written to its own `secrets/infisical-<env>-machine.env`.
+
+An editable diagram of this flow lives at
+[`docs/just-bootstrap-flow.excalidraw`](docs/just-bootstrap-flow.excalidraw)
+(open in [Excalidraw](https://excalidraw.com)).
+
+---
+
+## Post-provisioning: running with secrets
+
+Provisioning gets secrets *into* Infisical. To make your app *run with* them,
+wire up `infisical run` once:
+
+```bash
+# Pin project + default env into .infisical.json (no secrets; safe to commit).
+INFISICAL_PROJECT_ID=<uuid> DEFAULT_ENV=dev bash scripts/setup-infisical-run.sh
+# or: just setup-run
+```
+
+Then run any command — Node, Python, Go, a bare binary — through the universal
+wrapper, which injects secrets as environment variables:
+
+```bash
+# Local dev (uses your interactive `infisical login` session):
+INFISICAL_API_URL=<url> bash scripts/run-with-secrets.sh npm run dev
+# or: just run npm run dev
+
+# Non-default env / monorepo app path:
+INFISICAL_ENV=prod SECRET_PATH=/api bash scripts/run-with-secrets.sh ./server
+```
+
+On a **server**, source the machine-identity credential file first; the wrapper
+detects the creds and logs in via Universal Auth automatically (no interactive
+session needed):
+
+```bash
+set -a; . /etc/<slug>/infisical.env; set +a   # INFISICAL_CLIENT_ID/SECRET + URL
+bash scripts/run-with-secrets.sh ./server
+```
+
+The same `run-with-secrets.sh` entrypoint therefore works in dev and in
+production — only the auth source differs. This avoids editing `package.json`
+(Node-only) and keeps the toolkit language-agnostic; the prefix lives in your
+Dockerfile `CMD`, systemd unit, or process manager instead.
+
 ---
 
 ## Environment variables reference
@@ -119,11 +208,14 @@ All scripts are configured via environment variables. See `config.example.sh` fo
 | `INFISICAL_API_URL` | — | all (required) |
 | `PROJECT_NAME` | `My Project` | bootstrap-infisical |
 | `PROJECT_SLUG` | `my-project` | bootstrap-infisical, bootstrap-1password-sync |
-| `ENVIRONMENTS` | `dev prod` | bootstrap-infisical, bootstrap-1password-sync |
+| `ENVIRONMENTS` | `dev staging prod` | bootstrap-infisical, bootstrap-1password-sync |
 | `MONOREPO_APPS` | `""` | bootstrap-infisical, bootstrap-1password-sync |
 | `INFISICAL_PROJECT_ID` | `""` | all (skip project creation on re-runs) |
+| `OVERWRITE_IDENTITIES` | `0` | bootstrap-infisical (`1` = delete + recreate existing identity) |
 | `ORG_ID` | auto-detected | bootstrap-infisical |
 | `OUT_DIR` | `secrets` | bootstrap-infisical |
+| `DEFAULT_ENV` | `dev` | setup-infisical-run (baked into `.infisical.json`) |
+| `INFISICAL_ENV` | `dev` | run-with-secrets (environment to inject) |
 | `OP_INSTANCE_URL` | — | bootstrap-1password-sync (required) |
 | `OP_SERVICE_TOKEN` | — | bootstrap-1password-sync (required) |
 | `OP_CONNECTION_ID` | `""` | bootstrap-1password-sync (skip connection creation) |
@@ -150,7 +242,9 @@ All endpoints were verified against a self-hosted Infisical instance. The live A
 | `GET` | `/api/v1/workspace/:id` | Get project + environment list |
 | `GET` | `/api/v2/folders` | List folders (idempotency check) |
 | `POST` | `/api/v2/folders` | Create monorepo folder |
+| `GET` | `/api/v2/organizations/:orgId/identity-memberships` | List identities (idempotency lookup by name) — ⚠ re-verify |
 | `POST` | `/api/v1/identities` | Create org-level machine identity |
+| `DELETE` | `/api/v1/identities/:identityId` | Delete identity (`OVERWRITE_IDENTITIES=1`) — ⚠ re-verify |
 | `POST` | `/api/v2/workspace/:projectId/identity-memberships/:identityId` | Attach identity to project (`identityId` in PATH) |
 | `POST` | `/api/v1/auth/universal-auth/identities/:identityId` | Enable Universal Auth |
 | `POST` | `/api/v1/auth/universal-auth/identities/:identityId/client-secrets` | Mint client secret |
@@ -281,7 +375,7 @@ If a sync has `isEnabled:true` (auto-running), do **not** also trigger it manual
 | Scenario | What to do |
 |---|---|
 | Project already exists | Set `INFISICAL_PROJECT_ID=<uuid>` — bootstrap skips project creation |
-| Machine identities already exist | Delete old ones in UI first, or set `INFISICAL_PROJECT_ID` and comment out identity steps |
+| Machine identities already exist | Reused automatically (looked up by name). Set `OVERWRITE_IDENTITIES=1` to delete + recreate (rotates the secret) |
 | App connection already exists | Set `OP_CONNECTION_ID=<uuid>` — skip connection creation |
 | Syncs already exist | Script checks by name and skips existing syncs automatically |
 
