@@ -8,35 +8,35 @@ All scripts are `set -euo pipefail`, pass `shellcheck`, and gate every mutation 
 
 ## Quick start — any project
 
+Run this in your project root — it downloads the toolkit **and** sets everything up:
+
 ```bash
-# From your project root:
 curl -fsSL https://raw.githubusercontent.com/smicolon/secrets-bootstrap/main/install.sh | bash
 ```
 
-This downloads the scripts into `./scripts/` and drops `config.example.sh` and `.env.example` in the project root. It does not execute any provisioning.
+There are exactly two ways to feed it configuration:
 
-Then configure and provision **everything in one command**:
+**1. Guided (interactive).** Run in a terminal with no `config.sh` present and the
+installer prompts for the essentials — with smart defaults (project slug from the
+directory name, Infisical URL from your CLI config) and 1Password auto-detected. It
+logs you in if needed, writes `config.sh`, and provisions.
+
+**2. Config file.** Create `config.sh` from the example first; the installer (and
+`setup-all.sh`) read it and provision with **no prompts**:
 
 ```bash
-cp config.example.sh config.sh
-$EDITOR config.sh                           # fill in INFISICAL_API_URL, PROJECT_NAME, etc.
-infisical login --domain="$INFISICAL_API_URL"
-
-source config.sh && bash scripts/setup-all.sh   # (or: just all)
+cp config.example.sh config.sh && $EDITOR config.sh   # fill in your values
+curl -fsSL …/install.sh | bash                        # uses config.sh, no prompts
+# already downloaded? just:  source config.sh && bash scripts/setup-all.sh   (or: just all)
 ```
 
-`setup-all.sh` chains the full flow: project + machine identities → migrate
-`.env` → `infisical run` setup → 1Password mirror (when configured). It's
-idempotent — set `INFISICAL_PROJECT_ID` in config before re-running so it reuses
-the project. To run a single stage instead, use `just bootstrap`, `just migrate`,
+Either way it runs the full flow — project + machine identities → migrate `.env`
+→ `infisical run` setup → 1Password mirror (when configured) — and is idempotent,
+so re-running is safe. Run a single stage with `just bootstrap`, `just migrate`,
 `just onepassword-sync`, etc.
 
-You can even fold provisioning into the install itself (config + logins must
-already be in place):
-
-```bash
-curl -fsSL …/install.sh | RUN_SETUP=1 bash
-```
+> **CI / no terminal:** a blind pipe only downloads (never provisions) unless you
+> pass `RUN_SETUP=1` with config supplied via environment variables.
 
 ---
 
