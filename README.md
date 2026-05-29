@@ -1,0 +1,297 @@
+# infisical-bootstrap
+
+Reusable provisioning toolkit for wiring up [Infisical](https://infisical.com) secret management and an optional [1Password](https://1password.com) break-glass mirror for any project — single-app or monorepo.
+
+All scripts are `set -euo pipefail`, pass `shellcheck`, and gate every mutation on HTTP 2xx with body-on-failure output. No secret values are ever printed; `DRY_RUN=1` shows key names and lengths only.
+
+---
+
+## Quick start — any project
+
+```bash
+# From your project root:
+curl -fsSL https://raw.githubusercontent.com/smicolon/infisical-bootstrap/main/install.sh | bash
+```
+
+This downloads the three scripts into `./scripts/` and drops `config.example.sh` and `.env.example` in the project root. It does not execute any provisioning.
+
+Then:
+
+```bash
+cp config.example.sh config.sh
+$EDITOR config.sh          # fill in INFISICAL_API_URL, PROJECT_NAME, etc.
+source config.sh
+
+infisical login --domain="$INFISICAL_API_URL"
+bash scripts/bootstrap-infisical.sh
+```
+
+---
+
+## What the toolkit contains
+
+| File | Purpose |
+|---|---|
+| `scripts/bootstrap-infisical.sh` | Create project, environments, monorepo folders, machine identities |
+| `scripts/bootstrap-1password-sync.sh` | Wire Infisical → 1Password one-way sync |
+| `scripts/migrate-env-to-infisical.sh` | Push `.env` secrets into Infisical |
+| `install.sh` | curl-pipe installer (downloads scripts into any project) |
+| `config.example.sh` | Documented config template — source before running |
+| `.env.example` | env-var reference for all config knobs |
+| `justfile` | Task runner recipes |
+
+---
+
+## Single-app vs monorepo
+
+### Single-app
+
+All secrets live at the root path `/` in each environment.
+
+```bash
+export PROJECT_NAME="My App"
+export PROJECT_SLUG="my-app"
+export ENVIRONMENTS="dev prod"
+# MONOREPO_APPS is unset
+
+bash scripts/bootstrap-infisical.sh
+```
+
+Machine identities created: `my-app-dev`, `my-app-prod`.
+
+Credential files written to `secrets/infisical-dev-machine.env` and `secrets/infisical-prod-machine.env`.
+
+1Password key schema (if sync enabled): `MY_APP_DEV_{{secretKey}}`, `MY_APP_PROD_{{secretKey}}`.
+
+### Monorepo
+
+A `/<app>` folder is created per app per environment. Each app's secrets are isolated under its own path.
+
+```bash
+export PROJECT_NAME="My Monorepo"
+export PROJECT_SLUG="my-monorepo"
+export ENVIRONMENTS="dev prod"
+export MONOREPO_APPS="api worker frontend"
+
+bash scripts/bootstrap-infisical.sh
+```
+
+Folders created: `/api`, `/worker`, `/frontend` in each of `dev` and `prod`.
+
+To migrate an app's `.env`:
+
+```bash
+SECRET_PATH=/api TARGET_ENV=prod bash scripts/migrate-env-to-infisical.sh
+```
+
+1Password key schema per sync: `MY_MONOREPO_API_DEV_{{secretKey}}`, `MY_MONOREPO_WORKER_PROD_{{secretKey}}`, etc.
+
+---
+
+## Full provisioning flow
+
+```
+bootstrap-infisical.sh
+  -> creates project + environments + folders (monorepo)
+  -> creates machine identities (Universal Auth)
+  -> writes secrets/<env>-machine.env (gitignored, mode 600)
+
+migrate-env-to-infisical.sh
+  -> reads .env (or SRC_ENV) and pushes all non-empty scalars
+  -> supports DRY_RUN=1 to preview without writing
+  -> supports SKIP_KEYS to exclude specific variables
+  -> supports SECRET_PATH for monorepo folder targeting
+
+bootstrap-1password-sync.sh
+  -> creates (or reuses) a 1Password vault
+  -> creates an Infisical App Connection (Connect server creds)
+  -> creates one sync per (env, app) pair
+```
+
+---
+
+## Environment variables reference
+
+All scripts are configured via environment variables. See `config.example.sh` for a full annotated template.
+
+| Variable | Default | Used by |
+|---|---|---|
+| `INFISICAL_API_URL` | — | all (required) |
+| `PROJECT_NAME` | `My Project` | bootstrap-infisical |
+| `PROJECT_SLUG` | `my-project` | bootstrap-infisical, bootstrap-1password-sync |
+| `ENVIRONMENTS` | `dev prod` | bootstrap-infisical, bootstrap-1password-sync |
+| `MONOREPO_APPS` | `""` | bootstrap-infisical, bootstrap-1password-sync |
+| `INFISICAL_PROJECT_ID` | `""` | all (skip project creation on re-runs) |
+| `ORG_ID` | auto-detected | bootstrap-infisical |
+| `OUT_DIR` | `secrets` | bootstrap-infisical |
+| `OP_INSTANCE_URL` | — | bootstrap-1password-sync (required) |
+| `OP_SERVICE_TOKEN` | — | bootstrap-1password-sync (required) |
+| `OP_CONNECTION_ID` | `""` | bootstrap-1password-sync (skip connection creation) |
+| `VAULT_NAME` | `$PROJECT_SLUG` | bootstrap-1password-sync |
+| `CONNECTION_NAME` | `$PROJECT_SLUG-1p` | bootstrap-1password-sync |
+| `SRC_ENV` | `.env` | migrate-env-to-infisical |
+| `TARGET_ENV` | — | migrate-env-to-infisical (required) |
+| `SECRET_PATH` | `/` | migrate-env-to-infisical |
+| `DRY_RUN` | `0` | migrate-env-to-infisical |
+| `SKIP_KEYS` | `""` | migrate-env-to-infisical |
+
+---
+
+## API endpoint reference (live-verified 2026-05-29)
+
+All endpoints were verified against a self-hosted Infisical instance. The live API is canonical — always re-verify before modifying connector code.
+
+### Infisical endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/workspace` | List workspaces + resolve `orgId` |
+| `POST` | `/api/v2/workspace` | Create project |
+| `GET` | `/api/v1/workspace/:id` | Get project + environment list |
+| `GET` | `/api/v2/folders` | List folders (idempotency check) |
+| `POST` | `/api/v2/folders` | Create monorepo folder |
+| `POST` | `/api/v1/identities` | Create org-level machine identity |
+| `POST` | `/api/v2/workspace/:projectId/identity-memberships/:identityId` | Attach identity to project (`identityId` in PATH) |
+| `POST` | `/api/v1/auth/universal-auth/identities/:identityId` | Enable Universal Auth |
+| `POST` | `/api/v1/auth/universal-auth/identities/:identityId/client-secrets` | Mint client secret |
+| `GET` | `/api/v1/app-connections/1password` | List 1Password connections |
+| `POST` | `/api/v1/app-connections/1password` | Create 1Password connection |
+| `GET` | `/api/v1/secret-syncs/1password` | List 1Password syncs |
+| `POST` | `/api/v1/secret-syncs/1password` | Create 1Password sync |
+
+### Key gotchas (hard-won)
+
+**Identity membership — `identityId` goes in the PATH, not the body.**
+The endpoint is `POST /api/v2/workspace/:projectId/identity-memberships/:identityId` and the body is just `{role:"member"}`. Putting `identityId` in the body silently creates the membership with the wrong structure.
+
+**Identity creation is NOT idempotent.**
+`POST /api/v1/identities` always creates a new identity. Re-running `bootstrap-infisical.sh` without setting `INFISICAL_PROJECT_ID` (to skip project creation) will produce duplicate identities. Delete old identities in the UI before re-running, or set `INFISICAL_PROJECT_ID` and skip the identity section.
+
+**`role:"member"` is not env-isolated.**
+A `member` identity has project-wide access to ALL environments. True per-env isolation requires a custom Project Role with an environment condition, applied in the UI:
+`Project > Access Control > Project Roles > New Role > add environment condition`
+
+**`keySchema` lives inside `syncOptions`, not `destinationConfig`.**
+A common mistake is putting `keySchema` inside `destinationConfig`. The correct structure is:
+```json
+{
+  "syncOptions": { "keySchema": "PREFIX_ENV_{{secretKey}}" },
+  "destinationConfig": { "vaultId": "...", "valueLabel": "value" }
+}
+```
+
+**`disableSecretDeletion:true` is mandatory when the vault contains other items.**
+Without this, Infisical will prune vault items it didn't create during a sync. Only set to `false` if the vault is exclusively Infisical-managed.
+
+---
+
+## 1Password Connect Server
+
+Infisical's 1Password integration requires a **Connect Server**, not a bare Service Account token. The Connect server acts as a gateway between Infisical and your 1Password account.
+
+### Deploy with Docker Compose
+
+```yaml
+services:
+  op-connect-api:
+    image: 1password/connect-api:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - op_data:/home/opuser/.op/data
+      - ./1password-credentials.json:/home/opuser/.op/1password-credentials.json:ro
+    environment:
+      OP_SESSION: ""
+
+  op-connect-sync:
+    image: 1password/connect-sync:latest
+    ports:
+      - "8081:8081"
+    volumes:
+      - op_data:/home/opuser/.op/data
+      - ./1password-credentials.json:/home/opuser/.op/1password-credentials.json:ro
+
+volumes:
+  op_data:
+```
+
+### Critical gotcha: credentials file ownership
+
+The `1password-credentials.json` file **must be owned by uid 999** (the container user), not root. If it is root-owned, the Connect server will start but fail all API calls with `"permission denied"`.
+
+Fix on the host before starting:
+
+```bash
+sudo chown 999:999 ./1password-credentials.json
+chmod 600 ./1password-credentials.json
+```
+
+### Critical gotcha: internal IP connections
+
+If Infisical and your Connect server are on the same host (or same private network), Infisical will reject the connection with `"Local IPs not allowed"` by default.
+
+Fix: set `ALLOW_INTERNAL_IP_CONNECTIONS=true` on the Infisical backend container, **OR** expose the Connect server via a public HTTPS hostname (e.g. via Cloudflare Tunnel or nginx proxy) and use that URL as `OP_INSTANCE_URL`.
+
+### Create a Connect server token
+
+One Connect server can serve many vaults. Tokens are vault-scoped — create one token per vault:
+
+```bash
+# Create the Connect server (one time)
+op connect server create "my-connect-server" --vaults "my-vault"
+
+# This outputs a credentials.json file and a token.
+# The credentials.json goes on the server (mount it as shown above).
+# The token is OP_SERVICE_TOKEN in your config.
+```
+
+### Architecture
+
+```
+Infisical (cloud or self-hosted)
+    |
+    | POST /api/v1/app-connections/1password
+    | credentials: { instanceUrl, apiToken }
+    v
+1Password Connect Server  (your deployment)
+    |
+    | internal API
+    v
+1Password cloud (your account)
+    |
+    | vault read/write
+    v
+1Password vault (break-glass copy)
+```
+
+One Infisical App Connection per project. The connection stores the Connect server URL and token. Each secret sync references the connection + a vault ID.
+
+---
+
+## Do not double-trigger syncs
+
+If a sync has `isEnabled:true` (auto-running), do **not** also trigger it manually from the Infisical UI or API. This creates duplicate vault items (one per trigger). To seed the vault for the first time, either:
+- Let the auto-sync run on its first cycle, or
+- Trigger manually exactly once before enabling auto-sync.
+
+---
+
+## Re-running safely
+
+| Scenario | What to do |
+|---|---|
+| Project already exists | Set `INFISICAL_PROJECT_ID=<uuid>` — bootstrap skips project creation |
+| Machine identities already exist | Delete old ones in UI first, or set `INFISICAL_PROJECT_ID` and comment out identity steps |
+| App connection already exists | Set `OP_CONNECTION_ID=<uuid>` — skip connection creation |
+| Syncs already exist | Script checks by name and skips existing syncs automatically |
+
+---
+
+## Commit history convention
+
+Scripts in this repo follow [Conventional Commits](https://www.conventionalcommits.org/):
+
+- `feat:` new capability
+- `fix:` bug fix
+- `docs:` documentation only
+- `chore:` maintenance (deps, CI, etc.)
