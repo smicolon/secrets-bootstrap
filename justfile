@@ -19,6 +19,10 @@ install-url:
 
 # ── Provisioning (run from your laptop with an active infisical login) ────────
 
+# One command: project + identities -> migrate .env -> infisical run -> 1Password
+all:
+    bash scripts/setup-all.sh
+
 # Create the Infisical project + environments + machine identities
 bootstrap:
     bash scripts/bootstrap-infisical.sh
@@ -63,6 +67,7 @@ lint:
     shellcheck scripts/setup-infisical-run.sh
     shellcheck scripts/run-with-secrets.sh
     shellcheck scripts/grant-1password-vault.sh
+    shellcheck scripts/setup-all.sh
     shellcheck install.sh
     @echo "shellcheck passed"
 
@@ -74,5 +79,6 @@ syntax-check:
     bash -n scripts/setup-infisical-run.sh
     bash -n scripts/run-with-secrets.sh
     bash -n scripts/grant-1password-vault.sh
+    bash -n scripts/setup-all.sh
     bash -n install.sh
     @echo "syntax check passed"

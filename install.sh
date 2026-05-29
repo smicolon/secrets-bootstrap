@@ -59,6 +59,7 @@ download "${REPO_RAW}/scripts/migrate-env-to-infisical.sh"  "scripts/migrate-env
 download "${REPO_RAW}/scripts/setup-infisical-run.sh"       "scripts/setup-infisical-run.sh"
 download "${REPO_RAW}/scripts/run-with-secrets.sh"          "scripts/run-with-secrets.sh"
 download "${REPO_RAW}/scripts/grant-1password-vault.sh"     "scripts/grant-1password-vault.sh"
+download "${REPO_RAW}/scripts/setup-all.sh"                 "scripts/setup-all.sh"
 
 # Make them executable.
 chmod 755 scripts/bootstrap-infisical.sh
@@ -67,6 +68,7 @@ chmod 755 scripts/migrate-env-to-infisical.sh
 chmod 755 scripts/setup-infisical-run.sh
 chmod 755 scripts/run-with-secrets.sh
 chmod 755 scripts/grant-1password-vault.sh
+chmod 755 scripts/setup-all.sh
 
 # Download config template and .env.example.
 download "${REPO_RAW}/config.example.sh" "config.example.sh"
@@ -84,16 +86,25 @@ echo ""
 echo "  2. Authenticate to Infisical:"
 echo "     infisical login --domain=\$INFISICAL_API_URL"
 echo ""
-echo "  3. Source config and run bootstrap:"
-echo "     source config.sh"
-echo "     bash scripts/bootstrap-infisical.sh"
+echo "  3. Provision EVERYTHING in one command:"
+echo "     source config.sh && bash scripts/setup-all.sh   # (or: just all)"
 echo ""
-echo "  4. Migrate your .env secrets:"
-echo "     DRY_RUN=1 bash scripts/migrate-env-to-infisical.sh   # dry run first"
-echo "     bash scripts/migrate-env-to-infisical.sh             # live migration"
-echo ""
-echo "  5. (Optional) Set up 1Password sync:"
-echo "     bash scripts/bootstrap-1password-sync.sh"
+echo "     This chains: project + identities -> migrate .env -> infisical run"
+echo "     setup -> 1Password mirror (when configured). Run individual steps"
+echo "     instead with: just bootstrap | just migrate | just onepassword-sync"
 echo ""
 echo "See README.md or https://github.com/smicolon/secrets-bootstrap for full docs."
 echo ""
+
+###############################################################################
+# Optional: provision in the same command.
+# Run the full setup right now when RUN_SETUP=1 (config.sh present or required
+# env vars already exported, and logins done). Off by default so a blind
+# curl | bash only ever downloads.
+###############################################################################
+if [[ "${RUN_SETUP:-0}" == "1" ]]; then
+  echo "=== RUN_SETUP=1 — provisioning now ==="
+  # shellcheck disable=SC1091
+  [[ -f config.sh ]] && source config.sh
+  bash scripts/setup-all.sh
+fi

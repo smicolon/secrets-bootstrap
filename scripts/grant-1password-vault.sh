@@ -146,6 +146,22 @@ if [[ "$DRY_RUN" == "1" ]]; then
 fi
 
 ###############################################################################
+# Idempotency — skip the whole rotation if an active TOKEN_NAME token already
+# covers the full vault set (so re-runs don't churn tokens). FORCE_ROTATE=1 to
+# rotate anyway (e.g. to rotate the secret on a schedule).
+###############################################################################
+if [[ "${FORCE_ROTATE:-0}" != "1" ]]; then
+  needed_json=$(printf '%s' "$ALL_IDS" | jq -R -s 'split("\n") | map(select(length>0))')
+  COVERED=$(op connect token list "${op_args[@]}" --format=json 2>/dev/null | jq -r \
+    --arg s "$SRV_ID" --arg n "$TOKEN_NAME" --argjson needed "$needed_json" \
+    'any(.[]; .integration_id==$s and .state=="ACTIVE" and .name==$n and ((($needed - [.vaults[].id]) | length) == 0))' 2>/dev/null || echo false)
+  if [[ "$COVERED" == "true" ]]; then
+    echo "[skip] an active '${TOKEN_NAME}' token already covers all ${VAULT_COUNT} vault(s) — nothing to rotate (FORCE_ROTATE=1 to force)"
+    exit 0
+  fi
+fi
+
+###############################################################################
 # Step 3 — Grant the server the new vault (idempotent).
 ###############################################################################
 echo "==> Granting server access to vault '${VAULT_NAME}'..."
