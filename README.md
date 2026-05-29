@@ -13,17 +13,29 @@ All scripts are `set -euo pipefail`, pass `shellcheck`, and gate every mutation 
 curl -fsSL https://raw.githubusercontent.com/smicolon/secrets-bootstrap/main/install.sh | bash
 ```
 
-This downloads the three scripts into `./scripts/` and drops `config.example.sh` and `.env.example` in the project root. It does not execute any provisioning.
+This downloads the scripts into `./scripts/` and drops `config.example.sh` and `.env.example` in the project root. It does not execute any provisioning.
 
-Then:
+Then configure and provision **everything in one command**:
 
 ```bash
 cp config.example.sh config.sh
-$EDITOR config.sh          # fill in INFISICAL_API_URL, PROJECT_NAME, etc.
-source config.sh
-
+$EDITOR config.sh                           # fill in INFISICAL_API_URL, PROJECT_NAME, etc.
 infisical login --domain="$INFISICAL_API_URL"
-bash scripts/bootstrap-infisical.sh
+
+source config.sh && bash scripts/setup-all.sh   # (or: just all)
+```
+
+`setup-all.sh` chains the full flow: project + machine identities → migrate
+`.env` → `infisical run` setup → 1Password mirror (when configured). It's
+idempotent — set `INFISICAL_PROJECT_ID` in config before re-running so it reuses
+the project. To run a single stage instead, use `just bootstrap`, `just migrate`,
+`just onepassword-sync`, etc.
+
+You can even fold provisioning into the install itself (config + logins must
+already be in place):
+
+```bash
+curl -fsSL …/install.sh | RUN_SETUP=1 bash
 ```
 
 ---
@@ -32,6 +44,7 @@ bash scripts/bootstrap-infisical.sh
 
 | File | Purpose |
 |---|---|
+| `scripts/setup-all.sh` | **One-command orchestrator** — runs the whole flow end to end |
 | `scripts/bootstrap-infisical.sh` | Create project, environments, monorepo folders, machine identities |
 | `scripts/bootstrap-1password-sync.sh` | Wire Infisical → 1Password one-way sync |
 | `scripts/migrate-env-to-infisical.sh` | Push `.env` secrets into Infisical |
