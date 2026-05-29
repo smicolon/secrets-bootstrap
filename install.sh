@@ -58,6 +58,7 @@ download "${REPO_RAW}/scripts/bootstrap-1password-sync.sh"  "scripts/bootstrap-1
 download "${REPO_RAW}/scripts/migrate-env-to-infisical.sh"  "scripts/migrate-env-to-infisical.sh"
 download "${REPO_RAW}/scripts/setup-infisical-run.sh"       "scripts/setup-infisical-run.sh"
 download "${REPO_RAW}/scripts/run-with-secrets.sh"          "scripts/run-with-secrets.sh"
+download "${REPO_RAW}/scripts/grant-1password-vault.sh"     "scripts/grant-1password-vault.sh"
 
 # Make them executable.
 chmod 755 scripts/bootstrap-infisical.sh
@@ -65,6 +66,7 @@ chmod 755 scripts/bootstrap-1password-sync.sh
 chmod 755 scripts/migrate-env-to-infisical.sh
 chmod 755 scripts/setup-infisical-run.sh
 chmod 755 scripts/run-with-secrets.sh
+chmod 755 scripts/grant-1password-vault.sh
 
 # Download config template and .env.example.
 download "${REPO_RAW}/config.example.sh" "config.example.sh"

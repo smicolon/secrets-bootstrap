@@ -344,6 +344,32 @@ else
 fi
 
 ###############################################################################
+# Step 4 — (optional) Grant the Connect server this vault + rotate its token so
+# the connection can actually reach it. Connect token vault-scope is immutable,
+# so adding a vault requires a fresh token + connection update — automated by
+# grant-1password-vault.sh. Runs only when OP_CONNECT_SERVER is set.
+###############################################################################
+if [[ -n "${OP_CONNECT_SERVER:-}" ]]; then
+  echo ""
+  echo "==> Step 4: Granting Connect server '${OP_CONNECT_SERVER}' the vault + rotating token..."
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  INFISICAL_API_URL="$INFISICAL_API_URL" \
+  OP_CONNECTION_ID="$OP_CONNECTION_ID" \
+  OP_CONNECT_SERVER="$OP_CONNECT_SERVER" \
+  VAULT_NAME="$VAULT_NAME" \
+  OP_ACCOUNT="${OP_ACCOUNT:-}" \
+  TOKEN_NAME="${TOKEN_NAME:-infisical-auto}" \
+  REVOKE_OLD="${REVOKE_OLD:-0}" \
+    bash "${SCRIPT_DIR}/grant-1password-vault.sh"
+else
+  echo ""
+  echo "[note] OP_CONNECT_SERVER not set — skipping automatic vault grant + token rotation."
+  echo "       The Connect server must be granted access to '${VAULT_NAME}' (and the"
+  echo "       connection's token updated) before this sync can reach the vault. Either"
+  echo "       set OP_CONNECT_SERVER and re-run, or do it manually in the 1Password UI."
+fi
+
+###############################################################################
 # Summary
 ###############################################################################
 echo ""

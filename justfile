@@ -35,6 +35,10 @@ migrate-dry env="prod":
 onepassword-sync:
     bash scripts/bootstrap-1password-sync.sh
 
+# Grant the Connect server a vault + rotate its token + update Infisical
+grant-vault vault:
+    VAULT_NAME={{vault}} bash scripts/grant-1password-vault.sh
+
 # Post-provisioning: write .infisical.json so `infisical run` needs no flags
 setup-run:
     bash scripts/setup-infisical-run.sh
@@ -58,6 +62,7 @@ lint:
     shellcheck scripts/migrate-env-to-infisical.sh
     shellcheck scripts/setup-infisical-run.sh
     shellcheck scripts/run-with-secrets.sh
+    shellcheck scripts/grant-1password-vault.sh
     shellcheck install.sh
     @echo "shellcheck passed"
 
@@ -68,5 +73,6 @@ syntax-check:
     bash -n scripts/migrate-env-to-infisical.sh
     bash -n scripts/setup-infisical-run.sh
     bash -n scripts/run-with-secrets.sh
+    bash -n scripts/grant-1password-vault.sh
     bash -n install.sh
     @echo "syntax check passed"
