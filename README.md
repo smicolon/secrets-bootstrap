@@ -37,6 +37,7 @@ bash scripts/bootstrap-infisical.sh
 | `scripts/migrate-env-to-infisical.sh` | Push `.env` secrets into Infisical |
 | `scripts/setup-infisical-run.sh` | Post-provisioning: write `.infisical.json` so `infisical run` needs no flags |
 | `scripts/run-with-secrets.sh` | Universal entrypoint — run any command with secrets injected |
+| `scripts/grant-1password-vault.sh` | Grant Connect server a vault + rotate its token + update Infisical (automates the immutable-token dance) |
 | `install.sh` | curl-pipe installer (downloads scripts into any project) |
 | `config.example.sh` | Documented config template — source before running |
 | `.env.example` | env-var reference for all config knobs |
@@ -219,8 +220,11 @@ All scripts are configured via environment variables. See `config.example.sh` fo
 | `OP_INSTANCE_URL` | — | bootstrap-1password-sync (required) |
 | `OP_SERVICE_TOKEN` | — | bootstrap-1password-sync (required) |
 | `OP_CONNECTION_ID` | `""` | bootstrap-1password-sync (skip connection creation) |
-| `VAULT_NAME` | `$PROJECT_SLUG` | bootstrap-1password-sync |
+| `VAULT_NAME` | `$PROJECT_SLUG` | bootstrap-1password-sync, grant-1password-vault |
 | `CONNECTION_NAME` | `$PROJECT_SLUG-1p` | bootstrap-1password-sync |
+| `OP_CONNECT_SERVER` | `""` | grant-1password-vault (Connect server name/id; enables auto grant + rotate) |
+| `TOKEN_NAME` | `infisical-auto` | grant-1password-vault (name of the auto-minted token) |
+| `REVOKE_OLD` | `0` | grant-1password-vault (`1` = revoke prior auto tokens) |
 | `SRC_ENV` | `.env` | migrate-env-to-infisical |
 | `TARGET_ENV` | — | migrate-env-to-infisical (required) |
 | `SECRET_PATH` | `/` | migrate-env-to-infisical |
@@ -249,17 +253,28 @@ All endpoints were verified against a self-hosted Infisical instance. The live A
 | `POST` | `/api/v1/auth/universal-auth/identities/:identityId` | Enable Universal Auth |
 | `POST` | `/api/v1/auth/universal-auth/identities/:identityId/client-secrets` | Mint client secret |
 | `GET` | `/api/v1/app-connections/1password` | List 1Password connections |
+| `GET` | `/api/v1/app-connections/1password/:id` | Get connection (exposes `instanceUrl`, never the token) |
 | `POST` | `/api/v1/app-connections/1password` | Create 1Password connection |
+| `PATCH` | `/api/v1/app-connections/1password/:id` | Update connection token (vault-rotation) |
 | `GET` | `/api/v1/secret-syncs/1password` | List 1Password syncs |
 | `POST` | `/api/v1/secret-syncs/1password` | Create 1Password sync |
+
+1Password Connect side (via `op` CLI): `op connect server list`,
+`op connect vault grant`, `op connect token list/create/delete`.
 
 ### Key gotchas (hard-won)
 
 **Identity membership — `identityId` goes in the PATH, not the body.**
 The endpoint is `POST /api/v2/workspace/:projectId/identity-memberships/:identityId` and the body is just `{role:"member"}`. Putting `identityId` in the body silently creates the membership with the wrong structure.
 
-**Identity creation is NOT idempotent.**
-`POST /api/v1/identities` always creates a new identity. Re-running `bootstrap-infisical.sh` without setting `INFISICAL_PROJECT_ID` (to skip project creation) will produce duplicate identities. Delete old identities in the UI before re-running, or set `INFISICAL_PROJECT_ID` and skip the identity section.
+**Identity creation is idempotent (by name).**
+`POST /api/v1/identities` itself always creates a new identity, so `bootstrap-infisical.sh` first looks one up by name via `GET /api/v2/organizations/:orgId/identity-memberships` and reuses it. Re-runs do not duplicate. `OVERWRITE_IDENTITIES=1` deletes (`DELETE /api/v1/identities/:id`) and recreates.
+
+**1Password Connect token vault-scope is immutable.**
+You cannot add a vault to an existing Connect token — it must be revoked and recreated, then the new token pushed into Infisical (`PATCH /api/v1/app-connections/1password/:id`). `grant-1password-vault.sh` automates this. See "1Password Connect: the immutable-token problem" above.
+
+**`op connect token create` uses `--vault` (repeatable), and the comma means permission — not a vault list.**
+`--vault "X,r"` is vault X *read-only*; `--vaults "a,b"` is misread as one vault `a` with bogus modifier `b`. Pass one `--vault` per vault. Worse, **op silently drops vaults the server can't reach yet** (grant-propagation lag) instead of erroring — so `grant-1password-vault.sh` verifies the minted token's vault count and retries, never shipping an under-scoped token.
 
 **`role:"member"` is not env-isolated.**
 A `member` identity has project-wide access to ALL environments. True per-env isolation requires a custom Project Role with an environment condition, applied in the UI:
@@ -359,6 +374,46 @@ Infisical (cloud or self-hosted)
 ```
 
 One Infisical App Connection per project. The connection stores the Connect server URL and token. Each secret sync references the connection + a vault ID.
+
+---
+
+## 1Password Connect: the immutable-token problem (automated)
+
+A 1Password Connect access token's **vault scope is immutable** — you cannot add
+a vault to an existing token. Adding a new vault means: grant the Connect server
+the vault → mint a *new* token spanning all vaults → update the token stored in
+Infisical's 1Password connection. Miss the last step and Infisical can't reach
+the new vault. Infisical does **not** auto-rotate this token, so per-project
+vaults otherwise break automation.
+
+`scripts/grant-1password-vault.sh` automates the whole dance:
+
+1. `op connect vault grant` — give the Connect server the new vault (idempotent).
+2. Compute the **union** of vaults on all currently-active tokens + the new one
+   (so rotating never strips access from other projects sharing the server).
+3. `op connect token create` — mint one token spanning that full set.
+4. `PATCH /api/v1/app-connections/1password/:id` — point Infisical at the new token.
+5. (Optional, `REVOKE_OLD=1`) revoke prior auto-minted tokens.
+
+```bash
+# Standalone (token value is never printed):
+INFISICAL_API_URL=… OP_CONNECTION_ID=<uuid> OP_CONNECT_SERVER="Infisical-connect" \
+  VAULT_NAME=my-project bash scripts/grant-1password-vault.sh
+# or: just grant-vault my-project
+
+# Preview without changing anything:
+DRY_RUN=1 … bash scripts/grant-1password-vault.sh
+```
+
+`bootstrap-1password-sync.sh` calls this automatically at the end **when
+`OP_CONNECT_SERVER` is set** — so a single run creates the vault, the syncs, and
+a working token. Requires an `op` session with rights to manage the Connect
+server. `OP_INSTANCE_URL` is auto-derived from the existing connection if unset.
+
+> **Alternative — one shared vault.** Because the sync `keySchema` already
+> namespaces keys (`SLUG_ENV_{{secretKey}}`), you can instead point every project
+> at a single shared vault and mint the Connect token once. That avoids rotation
+> entirely, at the cost of per-project vault isolation.
 
 ---
 

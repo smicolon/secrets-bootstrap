@@ -49,6 +49,15 @@ export OP_SERVICE_TOKEN="<connect-server-api-token>"
 export VAULT_NAME="$PROJECT_SLUG"
 export CONNECTION_NAME="${PROJECT_SLUG}-1p"
 
+# Auto vault-grant + token rotation (grant-1password-vault.sh). Connect token
+# vault-scope is immutable, so adding a vault needs a fresh token + connection
+# update. Set OP_CONNECT_SERVER to automate it (requires an op session with
+# rights to manage the Connect server). OP_INSTANCE_URL is auto-derived from the
+# existing connection if unset.
+# export OP_CONNECT_SERVER="Infisical-connect"
+export TOKEN_NAME="infisical-auto"   # name for the auto-minted Connect token
+export REVOKE_OLD="0"                # 1 = revoke prior auto-minted tokens after rotating
+
 # ── Migration ────────────────────────────────────────────────────────────────
 
 export SRC_ENV=".env"
